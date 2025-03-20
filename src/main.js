@@ -1,106 +1,158 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+import { AdvancedPhysics } from './AdvancedPhysics.js';
 import { Player } from './Player.js';
-import { UnderwaterEnvironment } from './Environment.js';
 import { Weapon } from './Weapon.js';
+import { Environment } from './Environment.js';
+import { WeaponSystem } from './WeaponSystem.js';
 import { WaterSurface } from './WaterSurface.js';
 import { UnderwaterParticles } from './UnderwaterParticles.js';
+import { Physics } from './Physics.js';
+import { EnemyAI } from './EnemyAI.js';
+import { UI } from './UI.js';
 
-class UnderwaterGunfight {
+export class UnderwaterGunfight {
     constructor() {
-        // Scene setup
+        // Initialize core components
+        this.initializeRenderer();
+        this.initializeScene();
+        this.initializeCamera();
+        this.initializePhysics();
+        this.initializeEnvironment();
+        this.initializePlayers();
+        
+        // Start game loop
+        this.lastTime = performance.now();
+        this.animate();
+        
+        // Handle window resize
+        window.addEventListener('resize', () => this.handleResize());
+    }
+    
+    initializeRenderer() {
+        this.renderer = new THREE.WebGLRenderer({
+            canvas: document.getElementById('game-canvas'),
+            antialias: true
+        });
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setClearColor(0x006994); // Ocean blue color
+        this.renderer.shadowMap.enabled = true;
+    }
+    
+    initializeScene() {
         this.scene = new THREE.Scene();
         
-        // Camera setup
+        // Add underwater fog effect
+        this.scene.fog = new THREE.FogExp2(0x006994, 0.02);
+        
+        // Add ambient and directional light
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        this.scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        directionalLight.position.set(100, 100, 100);
+        directionalLight.castShadow = true;
+        this.scene.add(directionalLight);
+        
+        // Add caustics effect (simulated water surface light patterns)
+        this.causticsLight = new THREE.PointLight(0x00ffff, 0.5);
+        this.causticsLight.position.set(0, 50, 0);
+        this.scene.add(this.causticsLight);
+    }
+    
+    initializeCamera() {
         this.camera = new THREE.PerspectiveCamera(
-            75, 
+            75,
             window.innerWidth / window.innerHeight,
             0.1,
             1000
         );
-
-        // Renderer setup
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setClearColor(0x006994); // Ocean blue color
-        document.body.appendChild(this.renderer.domElement);
-
-        // Clock for time-based animations
-        this.clock = new THREE.Clock();
-
-        // Initialize components
-        this.player = new Player(this.camera);
-        this.environment = new UnderwaterEnvironment(this.scene);
-        this.weapon = new Weapon(this.scene, this.camera);
-        this.waterSurface = new WaterSurface(this.scene);
-        this.particles = new UnderwaterParticles(this.scene);
+        this.camera.position.set(0, 10, 20);
+        this.camera.lookAt(0, 0, 0);
+    }
+    
+    initializePhysics() {
+        this.physics = new AdvancedPhysics(this.scene);
+    }
+    
+    initializeEnvironment() {
+        this.environment = new Environment(this.scene, this.physics);
+    }
+    
+    initializePlayers() {
+        // Create player 1
+        this.player1 = new Player(this.scene, this.physics, {
+            position: new THREE.Vector3(-5, 0, 0),
+            color: 0x00ff00,
+            controls: {
+                up: 'KeyW',
+                down: 'KeyS',
+                left: 'KeyA',
+                right: 'KeyD',
+                shoot: 'Space'
+            }
+        });
         
-        // Lighting setup
-        this.setupLights();
-
-        // Load 3D models
-        this.loadModels();
-
-        // Handle window resize
-        window.addEventListener('resize', () => this.onWindowResize(), false);
-
-        // Start the animation loop
-        this.animate();
-    }
-
-    setupLights() {
-        // Ambient light for general illumination
-        const ambientLight = new THREE.AmbientLight(0x6688cc, 0.5);
-        this.scene.add(ambientLight);
-
-        // Directional light for sun-like effect
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
-        directionalLight.position.set(-1, 1, -1);
-        this.scene.add(directionalLight);
-
-        // Add point lights for additional atmosphere
-        const pointLight1 = new THREE.PointLight(0x0077ff, 50, 50);
-        pointLight1.position.set(10, 5, 10);
-        this.scene.add(pointLight1);
-
-        const pointLight2 = new THREE.PointLight(0x0077ff, 50, 50);
-        pointLight2.position.set(-10, 5, -10);
-        this.scene.add(pointLight2);
-    }
-
-    loadModels() {
-        const loader = new GLTFLoader();
+        // Create player 2
+        this.player2 = new Player(this.scene, this.physics, {
+            position: new THREE.Vector3(5, 0, 0),
+            color: 0xff0000,
+            controls: {
+                up: 'ArrowUp',
+                down: 'ArrowDown',
+                left: 'ArrowLeft',
+                right: 'ArrowRight',
+                shoot: 'Enter'
+            }
+        });
         
-        // TODO: Add model loading when models are available
-        // loader.load('/models/submarine.glb', (gltf) => {
-        //     const model = gltf.scene;
-        //     model.position.set(0, 0, -5);
-        //     model.scale.set(0.5, 0.5, 0.5);
-        //     this.scene.add(model);
-        // });
+        // Give weapons to players
+        this.player1.setWeapon(new Weapon(this.scene, this.physics));
+        this.player2.setWeapon(new Weapon(this.scene, this.physics));
     }
-
-    onWindowResize() {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
+    
+    handleResize() {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        
+        this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        this.renderer.setSize(width, height);
     }
-
+    
+    update(deltaTime) {
+        // Update physics
+        this.physics.update(deltaTime);
+        
+        // Update players
+        this.player1.update(deltaTime);
+        this.player2.update(deltaTime);
+        
+        // Update environment
+        this.environment.update(deltaTime);
+        
+        // Update caustics effect
+        const time = performance.now() * 0.001;
+        this.causticsLight.position.x = Math.sin(time) * 10;
+        this.causticsLight.position.z = Math.cos(time) * 10;
+    }
+    
+    render() {
+        this.renderer.render(this.scene, this.camera);
+    }
+    
     animate() {
         requestAnimationFrame(() => this.animate());
-
-        const elapsedTime = this.clock.getElapsedTime();
-
-        // Update components
-        this.player.update();
-        this.weapon.update();
-        this.waterSurface.update(elapsedTime);
-        this.particles.update();
-
-        this.renderer.render(this.scene, this.camera);
+        
+        const currentTime = performance.now();
+        const deltaTime = (currentTime - this.lastTime) / 1000;
+        this.lastTime = currentTime;
+        
+        this.update(deltaTime);
+        this.render();
     }
 }
 
-// Initialize the game
-const game = new UnderwaterGunfight(); 
+// Start the game
+new UnderwaterGunfight(); 

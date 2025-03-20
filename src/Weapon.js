@@ -1,159 +1,222 @@
 import * as THREE from 'three';
 
 export class Weapon {
-    constructor(scene, camera) {
+    constructor(scene, physics) {
         this.scene = scene;
-        this.camera = camera;
-        this.bullets = [];
-        this.bulletSpeed = 1.5;
-        this.lastShootTime = 0;
-        this.shootingDelay = 250; // milliseconds between shots
+        this.physics = physics;
+        this.owner = null;
         
-        // Create weapon mesh (temporary cube as placeholder)
+        // Weapon properties
+        this.fireRate = 0.5; // Shots per second
+        this.lastShotTime = 0;
+        this.projectileSpeed = 15;
+        this.damage = 20;
+        this.maxAmmo = 30;
+        this.currentAmmo = this.maxAmmo;
+        this.reloadTime = 2;
+        this.isReloading = false;
+        
+        // Projectile pool
+        this.projectilePool = [];
+        this.activeProjectiles = [];
+        
         this.createWeaponMesh();
-        
-        // Setup raycaster
-        this.raycaster = new THREE.Raycaster();
-        
-        // Bind methods
-        this.shoot = this.shoot.bind(this);
-        this.update = this.update.bind(this);
-        
-        // Add event listener for shooting
-        document.addEventListener('mousedown', this.shoot);
-        
-        // Load sound
-        this.loadSound();
     }
     
     createWeaponMesh() {
-        // Temporary weapon mesh (will be replaced with actual model)
-        const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.3);
-        const material = new THREE.MeshPhongMaterial({ color: 0x333333 });
-        this.mesh = new THREE.Mesh(geometry, material);
+        // Create weapon model
+        const geometry = new THREE.Group();
         
-        // Position the weapon relative to the camera
+        // Barrel
+        const barrelGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.4, 8);
+        const barrelMaterial = new THREE.MeshPhongMaterial({
+            color: 0x666666,
+            shininess: 100
+        });
+        const barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
+        barrel.rotation.x = Math.PI / 2;
+        geometry.add(barrel);
+        
+        // Body
+        const bodyGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.3);
+        const bodyMaterial = new THREE.MeshPhongMaterial({
+            color: 0x444444,
+            shininess: 100
+        });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.position.z = -0.2;
+        geometry.add(body);
+        
+        this.mesh = geometry;
         this.mesh.position.set(0.3, -0.2, -0.5);
-        this.camera.add(this.mesh);
+        this.mesh.castShadow = true;
     }
     
-    loadSound() {
-        // Create an audio listener and add it to the camera
-        const listener = new THREE.AudioListener();
-        this.camera.add(listener);
-        
-        // Create a global audio source
-        this.sound = new THREE.Audio(listener);
-        
-        // Load a sound and set it as the Audio object's buffer
-        const audioLoader = new THREE.AudioLoader();
-        audioLoader.load('/sounds/shoot.mp3', (buffer) => {
-            this.sound.setBuffer(buffer);
-            this.sound.setVolume(0.5);
-        });
+    setOwner(player) {
+        this.owner = player;
+        this.owner.mesh.add(this.mesh);
     }
     
-    createBullet(direction) {
-        const geometry = new THREE.SphereGeometry(0.05);
-        const material = new THREE.MeshPhongMaterial({ 
-            color: 0xff0000,
-            emissive: 0xff0000,
-            emissiveIntensity: 0.5
-        });
-        const bullet = new THREE.Mesh(geometry, material);
+    createProjectile() {
+        // Check projectile pool first
+        let projectile = this.projectilePool.pop();
         
-        // Set initial position at gun barrel
-        const weaponPosition = new THREE.Vector3();
-        this.mesh.getWorldPosition(weaponPosition);
-        bullet.position.copy(weaponPosition);
+        if (!projectile) {
+            // Create new projectile if pool is empty
+            const geometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x00ffff,
+                emissive: 0x00ffff,
+                emissiveIntensity: 0.5,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            projectile = new THREE.Mesh(geometry, material);
+            projectile.castShadow = true;
+            
+            // Add trail effect
+            projectile.trail = new THREE.Group();
+            projectile.add(projectile.trail);
+        }
         
-        // Store direction and creation time
-        bullet.direction = direction;
-        bullet.creationTime = Date.now();
+        // Reset projectile properties
+        projectile.position.copy(this.owner.getPosition());
+        projectile.position.y += 0.3; // Adjust to barrel height
+        projectile.velocity = this.owner.getDirection().multiplyScalar(this.projectileSpeed);
+        projectile.timeAlive = 0;
+        projectile.maxLifetime = 3; // Seconds
         
-        this.scene.add(bullet);
-        this.bullets.push(bullet);
+        this.scene.add(projectile);
+        this.activeProjectiles.push(projectile);
         
-        // Create muzzle flash particle effect
-        this.createMuzzleFlash(weaponPosition);
+        // Create muzzle flash effect
+        this.createMuzzleFlash(projectile.position);
+        
+        return projectile;
     }
     
     createMuzzleFlash(position) {
-        // Create a simple particle system for muzzle flash
-        const particles = new THREE.Points(
-            new THREE.BufferGeometry(),
-            new THREE.PointsMaterial({
-                color: 0xffff00,
-                size: 0.1,
-                blending: THREE.AdditiveBlending,
-                transparent: true
-            })
-        );
+        const flash = new THREE.PointLight(0x00ffff, 1, 2);
+        flash.position.copy(position);
+        this.scene.add(flash);
         
-        // Create random particles in a cone shape
-        const particleCount = 20;
-        const positions = new Float32Array(particleCount * 3);
+        // Animate flash
+        let intensity = 1;
+        const animate = () => {
+            intensity *= 0.8;
+            flash.intensity = intensity;
+            
+            if (intensity > 0.1) {
+                requestAnimationFrame(animate);
+            } else {
+                this.scene.remove(flash);
+            }
+        };
         
-        for(let i = 0; i < particleCount; i++) {
-            const i3 = i * 3;
-            positions[i3] = position.x + (Math.random() - 0.5) * 0.2;
-            positions[i3 + 1] = position.y + (Math.random() - 0.5) * 0.2;
-            positions[i3 + 2] = position.z + Math.random() * -0.5;
+        animate();
+    }
+    
+    createBubbleTrail(projectile) {
+        if (Math.random() < 0.3) { // Control bubble frequency
+            const bubble = new THREE.Mesh(
+                new THREE.SphereGeometry(0.03, 8, 8),
+                new THREE.MeshPhongMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.5
+                })
+            );
+            
+            bubble.position.set(
+                (Math.random() - 0.5) * 0.1,
+                (Math.random() - 0.5) * 0.1,
+                (Math.random() - 0.5) * 0.1
+            );
+            
+            projectile.trail.add(bubble);
+            
+            // Animate bubble
+            const animate = () => {
+                bubble.position.y += 0.02;
+                bubble.position.x += (Math.random() - 0.5) * 0.01;
+                bubble.position.z += (Math.random() - 0.5) * 0.01;
+                bubble.material.opacity -= 0.02;
+                
+                if (bubble.material.opacity <= 0) {
+                    projectile.trail.remove(bubble);
+                    bubble.geometry.dispose();
+                    bubble.material.dispose();
+                } else {
+                    requestAnimationFrame(animate);
+                }
+            };
+            
+            animate();
         }
-        
-        particles.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        this.scene.add(particles);
-        
-        // Remove particles after animation
-        setTimeout(() => {
-            this.scene.remove(particles);
-        }, 100);
     }
     
     shoot() {
-        const now = Date.now();
-        if (now - this.lastShootTime < this.shootingDelay) return;
-        this.lastShootTime = now;
+        const currentTime = performance.now();
         
-        // Get shooting direction from camera
-        const direction = new THREE.Vector3();
-        this.camera.getWorldDirection(direction);
+        if (this.isReloading) return;
         
-        // Create and shoot bullet
-        this.createBullet(direction);
-        
-        // Play sound
-        if (this.sound && this.sound.isPlaying) {
-            this.sound.stop();
-        }
-        if (this.sound) {
-            this.sound.play();
+        if (this.currentAmmo <= 0) {
+            this.reload();
+            return;
         }
         
-        // Perform raycasting
-        this.raycaster.set(this.camera.position, direction);
-        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
-        
-        if (intersects.length > 0) {
-            const hit = intersects[0];
-            // TODO: Handle hit effects
-            console.log('Hit object at distance:', hit.distance);
+        if (currentTime - this.lastShotTime >= 1000 / this.fireRate) {
+            this.createProjectile();
+            this.currentAmmo--;
+            this.lastShotTime = currentTime;
+            
+            // Auto-reload when empty
+            if (this.currentAmmo <= 0) {
+                this.reload();
+            }
         }
     }
     
-    update() {
-        // Update bullet positions
-        const now = Date.now();
-        this.bullets = this.bullets.filter(bullet => {
-            // Move bullet
-            bullet.position.add(bullet.direction.multiplyScalar(this.bulletSpeed));
+    reload() {
+        if (this.isReloading || this.currentAmmo === this.maxAmmo) return;
+        
+        this.isReloading = true;
+        
+        setTimeout(() => {
+            this.currentAmmo = this.maxAmmo;
+            this.isReloading = false;
+        }, this.reloadTime * 1000);
+    }
+    
+    update(deltaTime) {
+        // Update active projectiles
+        for (let i = this.activeProjectiles.length - 1; i >= 0; i--) {
+            const projectile = this.activeProjectiles[i];
             
-            // Remove bullets after 2 seconds
-            if (now - bullet.creationTime > 2000) {
-                this.scene.remove(bullet);
-                return false;
+            // Update position
+            projectile.position.add(projectile.velocity.clone().multiplyScalar(deltaTime));
+            
+            // Create bubble trail
+            this.createBubbleTrail(projectile);
+            
+            // Update lifetime
+            projectile.timeAlive += deltaTime;
+            
+            // Check if projectile should be removed
+            if (projectile.timeAlive >= projectile.maxLifetime) {
+                this.scene.remove(projectile);
+                this.activeProjectiles.splice(i, 1);
+                this.projectilePool.push(projectile);
             }
-            return true;
-        });
+        }
+    }
+    
+    getAmmoStatus() {
+        return {
+            current: this.currentAmmo,
+            max: this.maxAmmo,
+            isReloading: this.isReloading
+        };
     }
 } 

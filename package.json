@@ -8,14 +8,21 @@
     "build": "vite build",
     "preview": "vite preview"
   },
-  "keywords": ["three.js", "game", "3d", "underwater"],
+  "keywords": [
+    "three.js",
+    "game",
+    "3d",
+    "underwater"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "three": "^0.162.0",
-    "@types/three": "^0.162.0"
+    "@types/three": "^0.162.0",
+    "cannon-es": "^0.20.0",
+    "three": "^0.162.0"
   },
   "devDependencies": {
     "vite": "^6.2.2"
-  }
-} 
+  },
+  "main": "vite.config.js"
+}

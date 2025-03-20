@@ -4,23 +4,211 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Underwater Gunfight</title>
+    <link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,AAABAAEAAQECAAEAAQA4AAAAFgAAACgAAAABAAAAAgAAAAEAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/AAD/"> 
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
+        
         body {
             overflow: hidden;
+            background-color: #000;
+            font-family: Arial, sans-serif;
         }
-        canvas {
-            width: 100vw;
-            height: 100vh;
-            display: block;
+        
+        #game-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 2;
+        }
+        
+        #loading-screen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #00f;
+        }
+        
+        #loading-bar {
+            width: 300px;
+            height: 20px;
+            background-color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        #loading-progress {
+            width: 0%;
+            height: 100%;
+            background-color: #00f;
+            transition: width 0.3s ease-out;
+        }
+        
+        #error-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 3;
+        }
+        
+        #error-screen h2 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #f00;
+        }
+        
+        #error-message {
+            font-size: 18px;
+            margin-bottom: 20px;
+            text-align: center;
+            max-width: 600px;
+            padding: 0 20px;
+        }
+        
+        #reload-button {
+            padding: 10px 20px;
+            font-size: 18px;
+            background-color: #f00;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        #reload-button:hover {
+            background-color: #d00;
         }
     </style>
 </head>
 <body>
-    <script type="module" src="/src/main.js"></script>
+    <canvas id="game-canvas"></canvas>
+    
+    <div id="loading-screen">
+        <h1>UNDERWATER GUNFIGHT</h1>
+        <div id="loading-bar">
+            <div id="loading-progress"></div>
+        </div>
+    </div>
+    
+    <div id="error-screen">
+        <h2>Error</h2>
+        <p id="error-message"></p>
+        <button id="reload-button" onclick="location.reload()">Reload Game</button>
+    </div>
+    
+    <script type="module">
+        import { UnderwaterGunfight } from './src/main.js';
+        
+        // Initialize loading screen
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingProgress = document.getElementById('loading-progress');
+        const errorScreen = document.getElementById('error-screen');
+        const errorMessage = document.getElementById('error-message');
+        
+        // Show loading progress
+        function updateLoadingProgress(progress) {
+            loadingProgress.style.width = `${progress * 100}%`;
+        }
+        
+        // Show error message
+        function showError(message) {
+            console.error(message);
+            errorMessage.textContent = message;
+            errorScreen.style.display = 'flex';
+            loadingScreen.style.display = 'none';
+        }
+        
+        // Initialize game
+        async function initGame() {
+            try {
+                // Show initial loading progress
+                updateLoadingProgress(0.2);
+                
+                // Wait for all required modules to load
+                await Promise.all([
+                    import('./src/main.js'),
+                    import('./src/UI.js'),
+                    import('./src/WeaponSystem.js'),
+                    import('./src/Player.js'),
+                    import('./src/Physics.js'),
+                    import('./src/EnemyAI.js'),
+                    import('./src/Environment.js'),
+                    import('./src/WaterSurface.js'),
+                    import('./src/UnderwaterParticles.js'),
+                    import('./src/AdvancedPhysics.js')
+                ]);
+                
+                updateLoadingProgress(0.6);
+                
+                // Create game instance
+                const game = new UnderwaterGunfight();
+                
+                // Update loading progress
+                updateLoadingProgress(1);
+                
+                // Hide loading screen when game is ready
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                }, 500);
+                
+                // Handle window resize
+                window.addEventListener('resize', () => {
+                    const canvas = document.getElementById('game-canvas');
+                    canvas.width = window.innerWidth;
+                    canvas.height = window.innerHeight;
+                    if (game.handleResize) {
+                        game.handleResize();
+                    }
+                });
+                
+                // Trigger initial resize
+                window.dispatchEvent(new Event('resize'));
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+                showError('Failed to initialize game. Error: ' + error.message);
+            }
+        }
+        
+        // Start initialization
+        initGame().catch(error => {
+            showError('Failed to start game. Error: ' + error.message);
+        });
+        
+        // Handle runtime errors
+        window.addEventListener('error', (event) => {
+            console.error('Game error:', event.error);
+            showError('An error occurred during gameplay. Please reload the game.');
+        });
+    </script>
+    <a href="https://jam.pieter.com" target="_blank" rel="noopener" style="font-family: 'system-ui', sans-serif; position: fixed; bottom: -1px; right: -1px; padding: 7px; font-size: 14px; font-weight: bold; background: #fff; color: #000; text-decoration: none; z-index: 10000; border-top-left-radius: 12px; border: 1px solid #fff;">🕹️ Vibe Jam 2025</a>
 </body>
 </html> 

@@ -1,120 +1,299 @@
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+import { HealthBar } from './HealthBar.js';
 
 export class Player {
-    constructor(camera) {
-        this.camera = camera;
-        this.moveSpeed = 0.1;
+    constructor(scene, physics, options) {
+        this.scene = scene;
+        this.physics = physics;
+        this.options = {
+            position: options.position || new THREE.Vector3(0, 0, 0),
+            color: options.color || 0x00ff00,
+            controls: options.controls || {
+                up: 'KeyW',
+                down: 'KeyS',
+                left: 'KeyA',
+                right: 'KeyD',
+                shoot: 'Space'
+            }
+        };
+        
         this.velocity = new THREE.Vector3();
-        this.direction = new THREE.Vector3();
-        this.moveForward = false;
-        this.moveBackward = false;
-        this.moveLeft = false;
-        this.moveRight = false;
-        this.canJump = true;
-
-        // Initialize player position
-        this.camera.position.set(0, 2, 5);
+        this.acceleration = new THREE.Vector3();
+        this.maxSpeed = 10;
+        this.drag = 0.95; // Underwater drag
+        this.health = 100;
+        this.isAlive = true;
         
-        // Setup mouse look controls
-        this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
-        this.mouseSensitivity = 0.002;
+        this.createPlayerMesh();
+        this.setupControls();
+    }
+    
+    createPlayerMesh() {
+        // Create player body
+        const geometry = new THREE.SphereGeometry(0.5, 32, 32);
+        const material = new THREE.MeshPhongMaterial({
+            color: this.options.color,
+            shininess: 100,
+            transparent: true,
+            opacity: 0.9
+        });
+        this.mesh = new THREE.Mesh(geometry, material);
+        this.mesh.position.copy(this.options.position);
+        this.mesh.castShadow = true;
+        this.mesh.receiveShadow = true;
         
-        // Bind event handlers
-        this.onKeyDown = this.onKeyDown.bind(this);
-        this.onKeyUp = this.onKeyUp.bind(this);
-        this.onMouseMove = this.onMouseMove.bind(this);
+        // Add bubble trail emitter
+        this.bubbleTrail = new THREE.Group();
+        this.mesh.add(this.bubbleTrail);
+        this.bubbleTrail.position.set(0, -0.5, 0);
         
-        // Add event listeners
-        document.addEventListener('keydown', this.onKeyDown);
-        document.addEventListener('keyup', this.onKeyUp);
-        document.addEventListener('mousemove', this.onMouseMove);
+        // Create hit effect material
+        this.hitEffectMaterial = new THREE.MeshPhongMaterial({
+            color: 0xff0000,
+            transparent: true,
+            opacity: 0
+        });
         
-        // Lock pointer on click
-        document.addEventListener('click', () => {
-            document.body.requestPointerLock();
+        this.scene.add(this.mesh);
+    }
+    
+    setupControls() {
+        this.keys = {
+            up: false,
+            down: false,
+            left: false,
+            right: false,
+            shoot: false
+        };
+        
+        // Key down handler
+        window.addEventListener('keydown', (event) => {
+            switch (event.code) {
+                case this.options.controls.up:
+                    this.keys.up = true;
+                    break;
+                case this.options.controls.down:
+                    this.keys.down = true;
+                    break;
+                case this.options.controls.left:
+                    this.keys.left = true;
+                    break;
+                case this.options.controls.right:
+                    this.keys.right = true;
+                    break;
+                case this.options.controls.shoot:
+                    this.keys.shoot = true;
+                    if (this.weapon) {
+                        this.weapon.shoot();
+                    }
+                    break;
+            }
+        });
+        
+        // Key up handler
+        window.addEventListener('keyup', (event) => {
+            switch (event.code) {
+                case this.options.controls.up:
+                    this.keys.up = false;
+                    break;
+                case this.options.controls.down:
+                    this.keys.down = false;
+                    break;
+                case this.options.controls.left:
+                    this.keys.left = false;
+                    break;
+                case this.options.controls.right:
+                    this.keys.right = false;
+                    break;
+                case this.options.controls.shoot:
+                    this.keys.shoot = false;
+                    break;
+            }
         });
     }
-
-    onMouseMove(event) {
-        if (document.pointerLockElement === document.body) {
-            this.euler.setFromQuaternion(this.camera.quaternion);
-            
-            this.euler.y -= event.movementX * this.mouseSensitivity;
-            this.euler.x -= event.movementY * this.mouseSensitivity;
-            
-            // Limit vertical rotation
-            this.euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.euler.x));
-            
-            this.camera.quaternion.setFromEuler(this.euler);
-        }
+    
+    setWeapon(weapon) {
+        this.weapon = weapon;
+        weapon.setOwner(this);
     }
-
-    onKeyDown(event) {
-        switch (event.code) {
-            case 'ArrowUp':
-            case 'KeyW':
-                this.moveForward = true;
-                break;
-            case 'ArrowDown':
-            case 'KeyS':
-                this.moveBackward = true;
-                break;
-            case 'ArrowLeft':
-            case 'KeyA':
-                this.moveLeft = true;
-                break;
-            case 'ArrowRight':
-            case 'KeyD':
-                this.moveRight = true;
-                break;
+    
+    update(deltaTime) {
+        if (!this.isAlive) return;
+        
+        // Calculate acceleration based on input
+        this.acceleration.set(0, 0, 0);
+        
+        if (this.keys.up) this.acceleration.z -= 1;
+        if (this.keys.down) this.acceleration.z += 1;
+        if (this.keys.left) this.acceleration.x -= 1;
+        if (this.keys.right) this.acceleration.x += 1;
+        
+        // Normalize acceleration if moving diagonally
+        if (this.acceleration.lengthSq() > 0) {
+            this.acceleration.normalize();
+            this.acceleration.multiplyScalar(20); // Acceleration strength
         }
-    }
-
-    onKeyUp(event) {
-        switch (event.code) {
-            case 'ArrowUp':
-            case 'KeyW':
-                this.moveForward = false;
-                break;
-            case 'ArrowDown':
-            case 'KeyS':
-                this.moveBackward = false;
-                break;
-            case 'ArrowLeft':
-            case 'KeyA':
-                this.moveLeft = false;
-                break;
-            case 'ArrowRight':
-            case 'KeyD':
-                this.moveRight = false;
-                break;
+        
+        // Apply acceleration to velocity
+        this.velocity.add(this.acceleration.multiplyScalar(deltaTime));
+        
+        // Apply drag (water resistance)
+        this.velocity.multiplyScalar(this.drag);
+        
+        // Limit maximum speed
+        if (this.velocity.lengthSq() > this.maxSpeed * this.maxSpeed) {
+            this.velocity.normalize();
+            this.velocity.multiplyScalar(this.maxSpeed);
         }
-    }
-
-    update() {
-        if (document.pointerLockElement === document.body) {
-            this.velocity.x = 0;
-            this.velocity.z = 0;
-
-            this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
-            this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
-            this.direction.normalize();
-
-            if (this.moveForward || this.moveBackward) {
-                this.velocity.z -= this.direction.z * this.moveSpeed;
+        
+        // Update position
+        this.mesh.position.add(this.velocity.clone().multiplyScalar(deltaTime));
+        
+        // Update weapon
+        if (this.weapon) {
+            this.weapon.update(deltaTime);
+        }
+        
+        // Create bubble particles
+        if (Math.random() < 0.1) {
+            this.createBubble();
+        }
+        
+        // Update hit effect
+        if (this.mesh.material.opacity < 0.9) {
+            this.mesh.material.opacity += deltaTime * 2;
+            if (this.mesh.material.opacity > 0.9) {
+                this.mesh.material.opacity = 0.9;
             }
-            if (this.moveLeft || this.moveRight) {
-                this.velocity.x -= this.direction.x * this.moveSpeed;
+        }
+    }
+    
+    createBubble() {
+        const bubble = new THREE.Mesh(
+            new THREE.SphereGeometry(0.05, 8, 8),
+            new THREE.MeshPhongMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.5
+            })
+        );
+        
+        // Random position around the bubble trail emitter
+        bubble.position.set(
+            (Math.random() - 0.5) * 0.2,
+            0,
+            (Math.random() - 0.5) * 0.2
+        );
+        
+        this.bubbleTrail.add(bubble);
+        
+        // Animate bubble
+        const animate = () => {
+            bubble.position.y += 0.05;
+            bubble.position.x += (Math.random() - 0.5) * 0.02;
+            bubble.position.z += (Math.random() - 0.5) * 0.02;
+            bubble.material.opacity -= 0.01;
+            
+            if (bubble.material.opacity <= 0) {
+                this.bubbleTrail.remove(bubble);
+                bubble.geometry.dispose();
+                bubble.material.dispose();
+            } else {
+                requestAnimationFrame(animate);
             }
-
-            // Move the camera
-            this.camera.position.add(
-                new THREE.Vector3(
-                    -this.velocity.x * Math.cos(this.euler.y) - this.velocity.z * Math.sin(this.euler.y),
-                    0,
-                    -this.velocity.x * Math.sin(this.euler.y) + this.velocity.z * Math.cos(this.euler.y)
-                )
+        };
+        
+        animate();
+    }
+    
+    takeDamage(amount) {
+        this.health -= amount;
+        
+        // Visual feedback
+        this.mesh.material.opacity = 0.3;
+        
+        if (this.health <= 0) {
+            this.health = 0;
+            this.die();
+        }
+        
+        return this.health;
+    }
+    
+    die() {
+        this.isAlive = false;
+        this.mesh.material.opacity = 0.2;
+        
+        // Create explosion effect
+        const particleCount = 20;
+        const particles = new THREE.Group();
+        
+        for (let i = 0; i < particleCount; i++) {
+            const particle = new THREE.Mesh(
+                new THREE.SphereGeometry(0.1, 8, 8),
+                new THREE.MeshPhongMaterial({
+                    color: this.options.color,
+                    transparent: true,
+                    opacity: 0.8
+                })
             );
+            
+            const angle = (i / particleCount) * Math.PI * 2;
+            const speed = 5;
+            particle.velocity = new THREE.Vector3(
+                Math.cos(angle) * speed,
+                Math.sin(angle) * speed,
+                (Math.random() - 0.5) * speed
+            );
+            
+            particles.add(particle);
         }
+        
+        particles.position.copy(this.mesh.position);
+        this.scene.add(particles);
+        
+        // Animate explosion
+        const animate = () => {
+            let allParticlesGone = true;
+            
+            particles.children.forEach(particle => {
+                particle.position.add(particle.velocity.clone().multiplyScalar(0.016));
+                particle.velocity.multiplyScalar(0.95);
+                particle.material.opacity -= 0.02;
+                
+                if (particle.material.opacity > 0) {
+                    allParticlesGone = false;
+                }
+            });
+            
+            if (allParticlesGone) {
+                particles.children.forEach(particle => {
+                    particle.geometry.dispose();
+                    particle.material.dispose();
+                });
+                this.scene.remove(particles);
+            } else {
+                requestAnimationFrame(animate);
+            }
+        };
+        
+        animate();
+    }
+    
+    respawn() {
+        this.health = 100;
+        this.isAlive = true;
+        this.mesh.material.opacity = 0.9;
+        this.velocity.set(0, 0, 0);
+        this.mesh.position.copy(this.options.position);
+    }
+    
+    getPosition() {
+        return this.mesh.position;
+    }
+    
+    getDirection() {
+        return this.velocity.clone().normalize();
     }
 } 
