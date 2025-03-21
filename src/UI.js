@@ -1,247 +1,340 @@
-export class UI {
-    constructor() {
-        this.createUI();
-        this.setupEventListeners();
-    }
+import * as THREE from 'three';
 
-    createUI() {
+export class UI {
+    constructor(scene) {
+        this.scene = scene;
+        
         // Create UI container
         this.container = document.createElement('div');
         this.container.style.position = 'fixed';
+        this.container.style.top = '0';
+        this.container.style.left = '0';
         this.container.style.width = '100%';
         this.container.style.height = '100%';
         this.container.style.pointerEvents = 'none';
         document.body.appendChild(this.container);
-
-        // Create HUD elements
+        
+        // Create HUD
         this.createHUD();
-        this.createMessageSystem();
+        
+        // Create notification system
+        this.createNotificationSystem();
+        
+        // Create tutorial
+        this.createTutorial();
+        
+        // Create scoreboard
+        this.createScoreboard();
+        
+        // Create game over screen
         this.createGameOverScreen();
-        this.createStartScreen();
+        
+        // Setup event listeners
+        this.setupEventListeners();
     }
-
+    
     createHUD() {
-        // Health display
-        this.healthDisplay = document.createElement('div');
-        this.healthDisplay.style.position = 'absolute';
-        this.healthDisplay.style.left = '20px';
-        this.healthDisplay.style.top = '20px';
-        this.healthDisplay.style.color = '#fff';
-        this.healthDisplay.style.fontSize = '24px';
-        this.healthDisplay.style.textShadow = '2px 2px 2px rgba(0,0,0,0.5)';
-        this.container.appendChild(this.healthDisplay);
-
-        // Ammo display
-        this.ammoDisplay = document.createElement('div');
-        this.ammoDisplay.style.position = 'absolute';
-        this.ammoDisplay.style.right = '20px';
-        this.ammoDisplay.style.top = '20px';
-        this.ammoDisplay.style.color = '#fff';
-        this.ammoDisplay.style.fontSize = '24px';
-        this.ammoDisplay.style.textShadow = '2px 2px 2px rgba(0,0,0,0.5)';
-        this.container.appendChild(this.ammoDisplay);
-
-        // Score display
-        this.scoreDisplay = document.createElement('div');
-        this.scoreDisplay.style.position = 'absolute';
-        this.scoreDisplay.style.left = '50%';
-        this.scoreDisplay.style.top = '20px';
-        this.scoreDisplay.style.transform = 'translateX(-50%)';
-        this.scoreDisplay.style.color = '#fff';
-        this.scoreDisplay.style.fontSize = '24px';
-        this.scoreDisplay.style.textShadow = '2px 2px 2px rgba(0,0,0,0.5)';
-        this.container.appendChild(this.scoreDisplay);
-
-        // Crosshair
-        this.crosshair = document.createElement('div');
-        this.crosshair.style.position = 'absolute';
-        this.crosshair.style.left = '50%';
-        this.crosshair.style.top = '50%';
-        this.crosshair.style.width = '20px';
-        this.crosshair.style.height = '20px';
-        this.crosshair.style.transform = 'translate(-50%, -50%)';
-        this.crosshair.innerHTML = '⊕';
-        this.crosshair.style.color = '#fff';
-        this.crosshair.style.fontSize = '20px';
-        this.crosshair.style.textShadow = '0 0 2px rgba(0,0,0,0.5)';
-        this.container.appendChild(this.crosshair);
+        // Create HUD container
+        this.hud = document.createElement('div');
+        this.hud.style.position = 'absolute';
+        this.hud.style.width = '100%';
+        this.hud.style.padding = '20px';
+        this.hud.style.display = 'flex';
+        this.hud.style.justifyContent = 'space-between';
+        this.container.appendChild(this.hud);
+        
+        // Create player stats containers
+        this.playerStats = [];
+        
+        for (let i = 0; i < 2; i++) {
+            const statsContainer = document.createElement('div');
+            statsContainer.style.padding = '10px';
+            statsContainer.style.background = 'rgba(0, 0, 0, 0.5)';
+            statsContainer.style.borderRadius = '10px';
+            statsContainer.style.color = '#fff';
+            statsContainer.style.fontFamily = 'Arial, sans-serif';
+            
+            // Health bar
+            const healthBar = document.createElement('div');
+            healthBar.style.width = '200px';
+            healthBar.style.height = '20px';
+            healthBar.style.background = '#333';
+            healthBar.style.borderRadius = '10px';
+            healthBar.style.overflow = 'hidden';
+            healthBar.style.marginBottom = '10px';
+            
+            const healthFill = document.createElement('div');
+            healthFill.style.width = '100%';
+            healthFill.style.height = '100%';
+            healthFill.style.background = '#2ecc71';
+            healthFill.style.transition = 'width 0.3s ease-out';
+            healthBar.appendChild(healthFill);
+            
+            // Ammo counter
+            const ammoCounter = document.createElement('div');
+            ammoCounter.style.fontSize = '24px';
+            ammoCounter.style.marginBottom = '5px';
+            
+            // Score
+            const scoreCounter = document.createElement('div');
+            scoreCounter.style.fontSize = '20px';
+            
+            statsContainer.appendChild(healthBar);
+            statsContainer.appendChild(ammoCounter);
+            statsContainer.appendChild(scoreCounter);
+            
+            this.playerStats.push({
+                container: statsContainer,
+                healthBar: healthFill,
+                ammoCounter: ammoCounter,
+                scoreCounter: scoreCounter
+            });
+            
+            this.hud.appendChild(statsContainer);
+        }
+        
+        // Position player stats
+        this.playerStats[0].container.style.textAlign = 'left';
+        this.playerStats[1].container.style.textAlign = 'right';
     }
-
-    createMessageSystem() {
-        this.messageContainer = document.createElement('div');
-        this.messageContainer.style.position = 'absolute';
-        this.messageContainer.style.left = '50%';
-        this.messageContainer.style.bottom = '100px';
-        this.messageContainer.style.transform = 'translateX(-50%)';
-        this.messageContainer.style.color = '#fff';
-        this.messageContainer.style.fontSize = '24px';
-        this.messageContainer.style.textAlign = 'center';
-        this.messageContainer.style.textShadow = '2px 2px 2px rgba(0,0,0,0.5)';
-        this.container.appendChild(this.messageContainer);
+    
+    createNotificationSystem() {
+        this.notificationContainer = document.createElement('div');
+        this.notificationContainer.style.position = 'absolute';
+        this.notificationContainer.style.top = '20%';
+        this.notificationContainer.style.left = '50%';
+        this.notificationContainer.style.transform = 'translateX(-50%)';
+        this.notificationContainer.style.textAlign = 'center';
+        this.container.appendChild(this.notificationContainer);
     }
-
+    
+    createTutorial() {
+        this.tutorial = document.createElement('div');
+        this.tutorial.style.position = 'absolute';
+        this.tutorial.style.bottom = '20px';
+        this.tutorial.style.left = '50%';
+        this.tutorial.style.transform = 'translateX(-50%)';
+        this.tutorial.style.background = 'rgba(0, 0, 0, 0.7)';
+        this.tutorial.style.color = '#fff';
+        this.tutorial.style.padding = '20px';
+        this.tutorial.style.borderRadius = '10px';
+        this.tutorial.style.fontFamily = 'Arial, sans-serif';
+        this.tutorial.style.textAlign = 'center';
+        this.tutorial.innerHTML = `
+            <h3>Controls</h3>
+            <p>Player 1: WASD to move, SPACE to shoot</p>
+            <p>Player 2: Arrow keys to move, ENTER to shoot</p>
+            <button id="tutorial-close" style="pointer-events: auto;">Got it!</button>
+        `;
+        this.container.appendChild(this.tutorial);
+    }
+    
+    createScoreboard() {
+        this.scoreboard = document.createElement('div');
+        this.scoreboard.style.position = 'absolute';
+        this.scoreboard.style.top = '50%';
+        this.scoreboard.style.left = '50%';
+        this.scoreboard.style.transform = 'translate(-50%, -50%)';
+        this.scoreboard.style.background = 'rgba(0, 0, 0, 0.8)';
+        this.scoreboard.style.color = '#fff';
+        this.scoreboard.style.padding = '20px';
+        this.scoreboard.style.borderRadius = '10px';
+        this.scoreboard.style.fontFamily = 'Arial, sans-serif';
+        this.scoreboard.style.display = 'none';
+        this.container.appendChild(this.scoreboard);
+    }
+    
     createGameOverScreen() {
         this.gameOverScreen = document.createElement('div');
         this.gameOverScreen.style.position = 'absolute';
-        this.gameOverScreen.style.left = '0';
-        this.gameOverScreen.style.top = '0';
-        this.gameOverScreen.style.width = '100%';
-        this.gameOverScreen.style.height = '100%';
-        this.gameOverScreen.style.backgroundColor = 'rgba(0,0,0,0.7)';
-        this.gameOverScreen.style.display = 'none';
-        this.gameOverScreen.style.flexDirection = 'column';
-        this.gameOverScreen.style.alignItems = 'center';
-        this.gameOverScreen.style.justifyContent = 'center';
+        this.gameOverScreen.style.top = '50%';
+        this.gameOverScreen.style.left = '50%';
+        this.gameOverScreen.style.transform = 'translate(-50%, -50%)';
+        this.gameOverScreen.style.background = 'rgba(0, 0, 0, 0.9)';
         this.gameOverScreen.style.color = '#fff';
-        this.gameOverScreen.style.pointerEvents = 'auto';
-
-        const gameOverText = document.createElement('h1');
-        gameOverText.textContent = 'GAME OVER';
-        gameOverText.style.fontSize = '48px';
-        gameOverText.style.marginBottom = '20px';
-        this.gameOverScreen.appendChild(gameOverText);
-
-        this.scoreboard = document.createElement('div');
-        this.scoreboard.style.marginBottom = '30px';
-        this.gameOverScreen.appendChild(this.scoreboard);
-
-        const restartButton = document.createElement('button');
-        restartButton.textContent = 'Play Again';
-        restartButton.style.padding = '10px 20px';
-        restartButton.style.fontSize = '24px';
-        restartButton.style.cursor = 'pointer';
-        restartButton.style.backgroundColor = '#4CAF50';
-        restartButton.style.border = 'none';
-        restartButton.style.borderRadius = '5px';
-        restartButton.style.color = '#fff';
-        restartButton.onclick = () => this.onRestart?.();
-        this.gameOverScreen.appendChild(restartButton);
-
+        this.gameOverScreen.style.padding = '40px';
+        this.gameOverScreen.style.borderRadius = '20px';
+        this.gameOverScreen.style.textAlign = 'center';
+        this.gameOverScreen.style.display = 'none';
+        
+        const playAgainButton = document.createElement('button');
+        playAgainButton.textContent = 'Play Again';
+        playAgainButton.style.padding = '10px 20px';
+        playAgainButton.style.fontSize = '20px';
+        playAgainButton.style.marginTop = '20px';
+        playAgainButton.style.pointerEvents = 'auto';
+        playAgainButton.style.cursor = 'pointer';
+        
+        this.gameOverScreen.appendChild(playAgainButton);
         this.container.appendChild(this.gameOverScreen);
     }
-
-    createStartScreen() {
-        this.startScreen = document.createElement('div');
-        this.startScreen.style.position = 'absolute';
-        this.startScreen.style.left = '0';
-        this.startScreen.style.top = '0';
-        this.startScreen.style.width = '100%';
-        this.startScreen.style.height = '100%';
-        this.startScreen.style.backgroundColor = 'rgba(0,0,0,0.8)';
-        this.startScreen.style.display = 'flex';
-        this.startScreen.style.flexDirection = 'column';
-        this.startScreen.style.alignItems = 'center';
-        this.startScreen.style.justifyContent = 'center';
-        this.startScreen.style.color = '#fff';
-        this.startScreen.style.pointerEvents = 'auto';
-
-        const title = document.createElement('h1');
-        title.textContent = 'UNDERWATER GUNFIGHT';
-        title.style.fontSize = '48px';
-        title.style.marginBottom = '30px';
-        title.style.textAlign = 'center';
-        this.startScreen.appendChild(title);
-
-        const instructions = document.createElement('div');
-        instructions.innerHTML = `
-            <p>WASD - Move</p>
-            <p>SPACE - Swim Up</p>
-            <p>SHIFT - Swim Down</p>
-            <p>MOUSE - Aim</p>
-            <p>LEFT CLICK - Shoot</p>
-            <p>1,2,3 - Switch Weapons</p>
-        `;
-        instructions.style.fontSize = '24px';
-        instructions.style.marginBottom = '30px';
-        instructions.style.textAlign = 'center';
-        this.startScreen.appendChild(instructions);
-
-        const startButton = document.createElement('button');
-        startButton.textContent = 'Start Game';
-        startButton.style.padding = '15px 30px';
-        startButton.style.fontSize = '24px';
-        startButton.style.cursor = 'pointer';
-        startButton.style.backgroundColor = '#4CAF50';
-        startButton.style.border = 'none';
-        startButton.style.borderRadius = '5px';
-        startButton.style.color = '#fff';
-        startButton.onclick = () => {
-            this.hideStartScreen();
-            this.onGameStart?.();
-        };
-        this.startScreen.appendChild(startButton);
-
-        this.container.appendChild(this.startScreen);
-    }
-
+    
     setupEventListeners() {
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            // Update UI positions if needed
+        // Tutorial close button
+        document.getElementById('tutorial-close').addEventListener('click', () => {
+            this.tutorial.style.display = 'none';
+        });
+        
+        // Listen for player events
+        window.addEventListener('player-damage', (event) => {
+            const player = event.detail.player;
+            const amount = event.detail.amount;
+            this.showDamageIndicator(player, amount);
+        });
+        
+        window.addEventListener('player-death', (event) => {
+            const player = event.detail.player;
+            this.showDeathMessage(player);
+        });
+        
+        window.addEventListener('player-score', (event) => {
+            const player = event.detail.player;
+            const score = event.detail.score;
+            this.updateScore(player, score);
+        });
+        
+        // Listen for weapon events
+        window.addEventListener('weapon-shoot', () => {
+            this.updatePlayerStats();
+        });
+        
+        window.addEventListener('weapon-reload-start', (event) => {
+            const weapon = event.detail.weapon;
+            this.showReloadingIndicator(weapon);
+        });
+        
+        window.addEventListener('weapon-reload-complete', () => {
+            this.updatePlayerStats();
         });
     }
-
-    updateHealth(health) {
-        this.healthDisplay.textContent = `Health: ${health}`;
-        if (health < 30) {
-            this.healthDisplay.style.color = '#ff4444';
-        } else if (health < 60) {
-            this.healthDisplay.style.color = '#ffff44';
-        } else {
-            this.healthDisplay.style.color = '#fff';
-        }
+    
+    updatePlayerStats() {
+        this.playerStats.forEach((stats, index) => {
+            const player = this.scene.getObjectByName(`player${index + 1}`);
+            if (player && player.userData.player) {
+                const playerObj = player.userData.player;
+                
+                // Update health bar
+                const healthPercent = (playerObj.health / 100) * 100;
+                stats.healthBar.style.width = `${healthPercent}%`;
+                stats.healthBar.style.background = this.getHealthColor(healthPercent);
+                
+                // Update ammo counter
+                if (playerObj.weapon) {
+                    stats.ammoCounter.textContent = `Ammo: ${playerObj.weapon.currentAmmo}/${playerObj.weapon.maxAmmo}`;
+                    if (playerObj.weapon.isReloading) {
+                        stats.ammoCounter.textContent += ' (Reloading...)';
+                    }
+                }
+                
+                // Update score
+                stats.scoreCounter.textContent = `Score: ${playerObj.score}`;
+            }
+        });
     }
-
-    updateAmmo(current, total) {
-        this.ammoDisplay.textContent = `Ammo: ${current}/${total}`;
-    }
-
-    updateScore(score) {
-        this.scoreDisplay.textContent = `Score: ${score}`;
-    }
-
-    showMessage(text, duration = 2000) {
-        this.messageContainer.textContent = text;
-        this.messageContainer.style.opacity = '1';
+    
+    showNotification(message, duration = 3000) {
+        const notification = document.createElement('div');
+        notification.style.background = 'rgba(0, 0, 0, 0.7)';
+        notification.style.color = '#fff';
+        notification.style.padding = '10px 20px';
+        notification.style.borderRadius = '5px';
+        notification.style.marginBottom = '10px';
+        notification.style.transition = 'opacity 0.3s ease-in-out';
+        notification.textContent = message;
+        
+        this.notificationContainer.appendChild(notification);
+        
         setTimeout(() => {
-            this.messageContainer.style.opacity = '0';
+            notification.style.opacity = '0';
+            setTimeout(() => {
+                this.notificationContainer.removeChild(notification);
+            }, 300);
         }, duration);
     }
-
-    showGameOver() {
-        this.gameOverScreen.style.display = 'flex';
+    
+    showDamageIndicator(player, amount) {
+        const index = player === this.scene.getObjectByName('player1').userData.player ? 0 : 1;
+        const stats = this.playerStats[index];
+        
+        // Flash health bar
+        stats.healthBar.style.transition = 'none';
+        stats.healthBar.style.filter = 'brightness(2)';
+        setTimeout(() => {
+            stats.healthBar.style.transition = 'all 0.3s ease-out';
+            stats.healthBar.style.filter = 'none';
+        }, 100);
+        
+        // Show damage number
+        const damageNumber = document.createElement('div');
+        damageNumber.style.position = 'absolute';
+        damageNumber.style.color = '#ff4444';
+        damageNumber.style.fontSize = '24px';
+        damageNumber.style.fontWeight = 'bold';
+        damageNumber.style.textShadow = '0 0 5px rgba(0,0,0,0.5)';
+        damageNumber.textContent = `-${amount}`;
+        
+        const rect = stats.container.getBoundingClientRect();
+        damageNumber.style.left = `${rect.left + Math.random() * rect.width}px`;
+        damageNumber.style.top = `${rect.top + Math.random() * rect.height}px`;
+        
+        this.container.appendChild(damageNumber);
+        
+        // Animate damage number
+        let opacity = 1;
+        let y = parseFloat(damageNumber.style.top);
+        
+        const animate = () => {
+            opacity -= 0.02;
+            y -= 1;
+            
+            damageNumber.style.opacity = opacity;
+            damageNumber.style.top = `${y}px`;
+            
+            if (opacity > 0) {
+                requestAnimationFrame(animate);
+            } else {
+                this.container.removeChild(damageNumber);
+            }
+        };
+        
+        animate();
     }
-
+    
+    showReloadingIndicator(weapon) {
+        const player = weapon.owner;
+        if (player) {
+            const index = player === this.scene.getObjectByName('player1').userData.player ? 0 : 1;
+            this.playerStats[index].ammoCounter.textContent = 'Reloading...';
+        }
+    }
+    
+    showDeathMessage(player) {
+        const message = `Player ${player === this.scene.getObjectByName('player1').userData.player ? '1' : '2'} was eliminated!`;
+        this.showNotification(message, 5000);
+    }
+    
+    updateScore(player, score) {
+        const index = player === this.scene.getObjectByName('player1').userData.player ? 0 : 1;
+        this.playerStats[index].scoreCounter.textContent = `Score: ${score}`;
+    }
+    
+    showGameOver(winner) {
+        this.gameOverScreen.innerHTML = `
+            <h2>Game Over!</h2>
+            <p>${winner} wins!</p>
+            <button id="play-again" style="pointer-events: auto;">Play Again</button>
+        `;
+        this.gameOverScreen.style.display = 'block';
+    }
+    
     hideGameOver() {
         this.gameOverScreen.style.display = 'none';
     }
-
-    hideStartScreen() {
-        this.startScreen.style.display = 'none';
-    }
-
-    updateScoreboard(scores) {
-        // Sort scores in descending order
-        scores.sort((a, b) => b.score - a.score);
-        
-        // Take top 5 scores
-        const topScores = scores.slice(0, 5);
-        
-        // Create scoreboard HTML
-        this.scoreboard.innerHTML = '<h2>High Scores</h2>';
-        const scoreList = document.createElement('ul');
-        scoreList.style.listStyle = 'none';
-        scoreList.style.padding = '0';
-        scoreList.style.margin = '10px 0';
-        
-        topScores.forEach((score, index) => {
-            const li = document.createElement('li');
-            li.textContent = `${index + 1}. ${score.name}: ${score.score}`;
-            li.style.fontSize = '20px';
-            li.style.margin = '5px 0';
-            scoreList.appendChild(li);
-        });
-        
-        this.scoreboard.appendChild(scoreList);
+    
+    getHealthColor(percent) {
+        if (percent > 60) return '#2ecc71';
+        if (percent > 30) return '#f1c40f';
+        return '#e74c3c';
     }
 } 

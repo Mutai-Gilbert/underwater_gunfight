@@ -1,271 +1,141 @@
-import * as CANNON from 'cannon-es';
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 
 export class AdvancedPhysics {
     constructor(scene, physics) {
+        if (!physics) {
+            throw new Error('Physics instance must be provided to AdvancedPhysics');
+        }
         this.scene = scene;
         this.physics = physics;
         this.world = physics.world;
         
-        // Store interactive objects
-        this.floatingObjects = [];
-        this.chains = [];
+        // Initialize physics properties
+        this.bodies = new Map();
+        this.meshes = new Map();
         
-        // Create interactive objects
-        this.createFloatingPlatforms();
-        this.createChains();
+        // Set up collision detection
+        this.setupCollisionDetection();
     }
-
-    createFloatingPlatforms() {
-        // Create floating platforms at random positions
-        for (let i = 0; i < 10; i++) {
-            const position = new THREE.Vector3(
-                (Math.random() - 0.5) * 60,
-                Math.random() * 5 + 2,
-                (Math.random() - 0.5) * 60
-            );
+    
+    setupCollisionDetection() {
+        this.world.addEventListener('beginContact', (event) => {
+            const bodyA = event.bodyA;
+            const bodyB = event.bodyB;
             
-            const size = new THREE.Vector3(3, 0.5, 3);
-            this.createFloatingObject(position, size, 5);
+            // Handle collisions between objects
+            this.handleCollision(bodyA, bodyB);
+        });
+    }
+    
+    handleCollision(bodyA, bodyB) {
+        // Get the meshes associated with the bodies
+        const meshA = this.meshes.get(bodyA.id);
+        const meshB = this.meshes.get(bodyB.id);
+        
+        if (meshA && meshB) {
+            // Emit collision event that can be listened to by game objects
+            const event = new CustomEvent('physics-collision', {
+                detail: {
+                    bodyA: bodyA,
+                    bodyB: bodyB,
+                    meshA: meshA,
+                    meshB: meshB
+                }
+            });
+            window.dispatchEvent(event);
         }
     }
-
-    createFloatingObject(position, size, mass) {
-        // Create visual mesh
-        const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
-        const material = new THREE.MeshStandardMaterial({
-            color: 0x666666,
-            roughness: 0.7,
-            metalness: 0.3
-        });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.copy(position);
-        this.scene.add(mesh);
+    
+    addBody(mesh, options = {}) {
+        const defaults = {
+            mass: 1,
+            type: CANNON.Body.DYNAMIC,
+            shape: null,
+            position: mesh.position.clone(),
+            material: new CANNON.Material({ friction: 0.3, restitution: 0.3 })
+        };
+        
+        const config = { ...defaults, ...options };
         
         // Create physics body
-        const shape = new CANNON.Box(new CANNON.Vec3(size.x/2, size.y/2, size.z/2));
         const body = new CANNON.Body({
-            mass: mass,
-            shape: shape,
-            material: this.physics.worldMaterial,
-            position: new CANNON.Vec3(position.x, position.y, position.z)
+            mass: config.mass,
+            type: config.type,
+            shape: config.shape || this.getShapeFromGeometry(mesh.geometry),
+            position: new CANNON.Vec3(config.position.x, config.position.y, config.position.z),
+            material: config.material
         });
         
-        // Add buoyancy force
-        body.addEventListener('preStep', () => {
-            const waterLevel = 0;
-            const volume = size.x * size.y * size.z;
-            const submergedVolume = this.calculateSubmergedVolume(body, waterLevel, size);
-            const buoyancyForce = 9.82 * submergedVolume;
-            
-            // Apply buoyancy force at center of submerged volume
-            const forcePoint = this.calculateBuoyancyForcePoint(body, waterLevel, size);
-            body.applyForce(new CANNON.Vec3(0, buoyancyForce, 0), forcePoint);
-            
-            // Add water resistance
-            const velocity = body.velocity;
-            const rotation = body.angularVelocity;
-            const dragCoefficient = 0.5;
-            const rotationalDragCoefficient = 0.2;
-            
-            // Linear drag
-            const force = new CANNON.Vec3(
-                -velocity.x * dragCoefficient * submergedVolume,
-                -velocity.y * dragCoefficient * submergedVolume,
-                -velocity.z * dragCoefficient * submergedVolume
-            );
-            body.applyForce(force, body.position);
-            
-            // Rotational drag
-            const torque = new CANNON.Vec3(
-                -rotation.x * rotationalDragCoefficient * submergedVolume,
-                -rotation.y * rotationalDragCoefficient * submergedVolume,
-                -rotation.z * rotationalDragCoefficient * submergedVolume
-            );
-            body.torque.vadd(torque, body.torque);
-        });
-        
+        // Add body to world
         this.world.addBody(body);
         
-        // Store object data
-        this.floatingObjects.push({
-            mesh: mesh,
-            body: body,
-            size: size
-        });
+        // Store references
+        this.bodies.set(mesh.id, body);
+        this.meshes.set(body.id, mesh);
         
         return body;
     }
-
-    createChains() {
-        // Create chains at random positions
-        for (let i = 0; i < 3; i++) {
-            const position = new THREE.Vector3(
-                (Math.random() - 0.5) * 40,
-                15,
-                (Math.random() - 0.5) * 40
-            );
-            
-            const linkSize = new THREE.Vector3(0.3, 0.6, 0.3);
-            this.createChain(position, 10, linkSize, 0.5);
+    
+    removeBody(mesh) {
+        const body = this.bodies.get(mesh.id);
+        if (body) {
+            this.world.removeBody(body);
+            this.bodies.delete(mesh.id);
+            this.meshes.delete(body.id);
         }
     }
-
-    createChain(startPosition, numLinks, linkSize, linkMass) {
-        const chain = {
-            links: [],
-            constraints: []
-        };
-        
-        let prevBody = null;
-        
-        // Create chain links
-        for (let i = 0; i < numLinks; i++) {
-            // Create visual mesh
-            const geometry = new THREE.BoxGeometry(linkSize.x, linkSize.y, linkSize.z);
-            const material = new THREE.MeshStandardMaterial({
-                color: 0x444444,
-                roughness: 0.7,
-                metalness: 0.3
-            });
-            const mesh = new THREE.Mesh(geometry, material);
-            this.scene.add(mesh);
-            
-            // Create physics body
-            const shape = new CANNON.Box(new CANNON.Vec3(linkSize.x/2, linkSize.y/2, linkSize.z/2));
-            const position = new CANNON.Vec3(
-                startPosition.x,
-                startPosition.y - i * linkSize.y,
-                startPosition.z
-            );
-            
-            const body = new CANNON.Body({
-                mass: i === 0 ? 0 : linkMass, // First link is fixed
-                shape: shape,
-                material: this.physics.worldMaterial,
-                position: position
-            });
-            
-            // Add buoyancy and water resistance
-            body.addEventListener('preStep', () => {
-                const waterLevel = 0;
-                const volume = linkSize.x * linkSize.y * linkSize.z;
-                const submergedVolume = this.calculateSubmergedVolume(body, waterLevel, linkSize);
-                const buoyancyForce = 9.82 * submergedVolume;
-                
-                // Apply buoyancy force
-                body.applyForce(new CANNON.Vec3(0, buoyancyForce, 0), body.position);
-                
-                // Add water resistance
-                const velocity = body.velocity;
-                const rotation = body.angularVelocity;
-                const dragCoefficient = 0.5;
-                const rotationalDragCoefficient = 0.2;
-                
-                // Linear drag
-                const force = new CANNON.Vec3(
-                    -velocity.x * dragCoefficient * submergedVolume,
-                    -velocity.y * dragCoefficient * submergedVolume,
-                    -velocity.z * dragCoefficient * submergedVolume
-                );
-                body.applyForce(force, body.position);
-                
-                // Rotational drag
-                const torque = new CANNON.Vec3(
-                    -rotation.x * rotationalDragCoefficient * submergedVolume,
-                    -rotation.y * rotationalDragCoefficient * submergedVolume,
-                    -rotation.z * rotationalDragCoefficient * submergedVolume
-                );
-                body.torque.vadd(torque, body.torque);
-            });
-            
-            this.world.addBody(body);
-            
-            // Create constraint with previous link
-            if (prevBody) {
-                const constraint = new CANNON.PointToPointConstraint(
-                    prevBody,
-                    new CANNON.Vec3(0, -linkSize.y/2, 0),
-                    body,
-                    new CANNON.Vec3(0, linkSize.y/2, 0)
-                );
-                this.world.addConstraint(constraint);
-                chain.constraints.push(constraint);
-            }
-            
-            // Store link data
-            chain.links.push({
-                mesh: mesh,
-                body: body
-            });
-            
-            prevBody = body;
+    
+    getShapeFromGeometry(geometry) {
+        // Create appropriate CANNON shape based on THREE.js geometry
+        if (geometry instanceof THREE.BoxGeometry) {
+            const params = geometry.parameters;
+            return new CANNON.Box(new CANNON.Vec3(
+                params.width / 2,
+                params.height / 2,
+                params.depth / 2
+            ));
+        } else if (geometry instanceof THREE.SphereGeometry) {
+            return new CANNON.Sphere(geometry.parameters.radius);
+        } else {
+            // Default to a box with geometry's bounding box dimensions
+            geometry.computeBoundingBox();
+            const box = geometry.boundingBox;
+            const size = box.getSize(new THREE.Vector3());
+            return new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2));
         }
-        
-        this.chains.push(chain);
-        return chain;
     }
-
-    calculateSubmergedVolume(body, waterLevel, size) {
-        // Calculate how much of the object is underwater
-        const pos = body.position;
-        const rot = body.quaternion;
-        
-        // Transform points to world space
-        const corners = [
-            new CANNON.Vec3(-size.x/2, -size.y/2, -size.z/2),
-            new CANNON.Vec3(size.x/2, -size.y/2, -size.z/2),
-            new CANNON.Vec3(-size.x/2, size.y/2, -size.z/2),
-            new CANNON.Vec3(size.x/2, size.y/2, -size.z/2),
-            new CANNON.Vec3(-size.x/2, -size.y/2, size.z/2),
-            new CANNON.Vec3(size.x/2, -size.y/2, size.z/2),
-            new CANNON.Vec3(-size.x/2, size.y/2, size.z/2),
-            new CANNON.Vec3(size.x/2, size.y/2, size.z/2)
-        ];
-        
-        // Count submerged corners
-        let submergedCorners = 0;
-        corners.forEach(corner => {
-            // Transform corner to world space
-            const worldCorner = new CANNON.Vec3();
-            corner.copy(worldCorner);
-            rot.vmult(worldCorner, worldCorner);
-            worldCorner.vadd(pos, worldCorner);
-            
-            if (worldCorner.y < waterLevel) {
-                submergedCorners++;
+    
+    update() {
+        // Update mesh positions based on physics bodies
+        this.bodies.forEach((body, meshId) => {
+            const mesh = this.scene.getObjectById(meshId);
+            if (mesh) {
+                mesh.position.copy(body.position);
+                mesh.quaternion.copy(body.quaternion);
             }
         });
-        
-        // Calculate approximate submerged volume
-        const totalVolume = size.x * size.y * size.z;
-        return (submergedCorners / 8) * totalVolume;
     }
-
-    calculateBuoyancyForcePoint(body, waterLevel, size) {
-        // Calculate the center point of the submerged portion
-        const pos = body.position;
-        const submergedCenter = new CANNON.Vec3(
-            pos.x,
-            Math.min(pos.y, waterLevel - size.y/4),
-            pos.z
-        );
-        return submergedCenter;
+    
+    applyForce(mesh, force, worldPoint) {
+        const body = this.bodies.get(mesh.id);
+        if (body) {
+            body.applyForce(
+                new CANNON.Vec3(force.x, force.y, force.z),
+                worldPoint ? new CANNON.Vec3(worldPoint.x, worldPoint.y, worldPoint.z) : body.position
+            );
+        }
     }
-
-    update(deltaTime) {
-        // Update floating objects
-        this.floatingObjects.forEach(object => {
-            object.mesh.position.copy(object.body.position);
-            object.mesh.quaternion.copy(object.body.quaternion);
-        });
-        
-        // Update chains
-        this.chains.forEach(chain => {
-            chain.links.forEach(link => {
-                link.mesh.position.copy(link.body.position);
-                link.mesh.quaternion.copy(link.body.quaternion);
-            });
-        });
+    
+    setVelocity(mesh, velocity) {
+        const body = this.bodies.get(mesh.id);
+        if (body) {
+            body.velocity.copy(velocity);
+        }
+    }
+    
+    getVelocity(mesh) {
+        const body = this.bodies.get(mesh.id);
+        return body ? body.velocity : null;
     }
 } 

@@ -5,193 +5,123 @@ export class Environment {
         this.scene = scene;
         this.physics = physics;
         
-        // Environment properties
-        this.waterColor = new THREE.Color(0x006994);
-        this.waterLevel = 0;
-        this.causticIntensity = 0.5;
-        
-        // Create environment elements
+        // Initialize environment components
         this.createWaterSurface();
         this.createSeafloor();
         this.createRocks();
         this.createSeaweed();
         this.createCaustics();
         this.createParticles();
+        this.createDecorations();
     }
     
     createWaterSurface() {
-        // Create water surface geometry
         const geometry = new THREE.PlaneGeometry(100, 100, 32, 32);
-        
-        // Create water material with custom shader
-        const waterMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                time: { value: 0 },
-                waterColor: { value: this.waterColor },
-                causticIntensity: { value: this.causticIntensity }
-            },
-            vertexShader: `
-                uniform float time;
-                varying vec2 vUv;
-                varying float vElevation;
-                
-                void main() {
-                    vUv = uv;
-                    vec3 pos = position;
-                    
-                    // Add waves
-                    float elevation = sin(pos.x * 0.2 + time) * 0.5 +
-                                    sin(pos.z * 0.3 + time * 0.8) * 0.3;
-                    pos.y += elevation;
-                    vElevation = elevation;
-                    
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-                }
-            `,
-            fragmentShader: `
-                uniform vec3 waterColor;
-                uniform float causticIntensity;
-                varying vec2 vUv;
-                varying float vElevation;
-                
-                void main() {
-                    float caustic = abs(sin(vUv.x * 10.0 + vElevation)) *
-                                  abs(sin(vUv.y * 10.0 + vElevation));
-                    vec3 color = waterColor + vec3(caustic * causticIntensity);
-                    gl_FragColor = vec4(color, 0.8);
-                }
-            `,
+        const material = new THREE.MeshStandardMaterial({
+            color: 0x87CEEB,
             transparent: true,
+            opacity: 0.8,
+            metalness: 0.5,
+            roughness: 0.2,
             side: THREE.DoubleSide
         });
-        
-        this.waterSurface = new THREE.Mesh(geometry, waterMaterial);
+        this.waterSurface = new THREE.Mesh(geometry, material);
         this.waterSurface.rotation.x = -Math.PI / 2;
-        this.waterSurface.position.y = this.waterLevel;
+        this.waterSurface.position.y = 5;
         this.scene.add(this.waterSurface);
+        
+        // Add wave animation
+        this.waterVertices = geometry.attributes.position.array;
+        this.waterVerticesOriginal = [...this.waterVertices];
     }
     
     createSeafloor() {
-        // Create seafloor geometry with displacement
-        const geometry = new THREE.PlaneGeometry(100, 100, 64, 64);
-        const positions = geometry.attributes.position.array;
-        
-        for (let i = 0; i < positions.length; i += 3) {
-            positions[i + 1] = Math.random() * 2 - 1; // Random height
-        }
-        
-        geometry.computeVertexNormals();
-        
-        // Create seafloor material
-        const material = new THREE.MeshPhongMaterial({
-            color: 0x507050,
-            shininess: 0,
-            displacementMap: this.createNoiseTexture(),
-            displacementScale: 2
+        const geometry = new THREE.PlaneGeometry(100, 100, 32, 32);
+        const material = new THREE.MeshStandardMaterial({
+            color: 0x98FF98,
+            metalness: 0.1,
+            roughness: 0.8,
+            side: THREE.DoubleSide
         });
-        
         this.seafloor = new THREE.Mesh(geometry, material);
         this.seafloor.rotation.x = -Math.PI / 2;
-        this.seafloor.position.y = -20;
-        this.seafloor.receiveShadow = true;
+        this.seafloor.position.y = -10;
         this.scene.add(this.seafloor);
     }
     
     createRocks() {
-        const rockCount = 20;
-        this.rocks = new THREE.Group();
-        
-        for (let i = 0; i < rockCount; i++) {
-            const geometry = new THREE.DodecahedronGeometry(
+        const rockColors = [0xFFA07A, 0xF08080, 0xE9967A];
+        for (let i = 0; i < 50; i++) {
+            const geometry = new THREE.SphereGeometry(
                 Math.random() * 2 + 1,
-                1
+                8,
+                8
             );
-            
-            // Distort vertices for more natural look
-            const positions = geometry.attributes.position.array;
-            for (let j = 0; j < positions.length; j += 3) {
-                positions[j] *= 0.8 + Math.random() * 0.4;
-                positions[j + 1] *= 0.8 + Math.random() * 0.4;
-                positions[j + 2] *= 0.8 + Math.random() * 0.4;
-            }
-            
-            geometry.computeVertexNormals();
-            
-            const material = new THREE.MeshPhongMaterial({
-                color: 0x666666,
-                shininess: 0,
-                flatShading: true
+            const material = new THREE.MeshStandardMaterial({
+                color: rockColors[Math.floor(Math.random() * rockColors.length)],
+                metalness: 0.1,
+                roughness: 0.9
             });
-            
             const rock = new THREE.Mesh(geometry, material);
             rock.position.set(
-                (Math.random() - 0.5) * 80,
-                -19 + Math.random() * 2,
-                (Math.random() - 0.5) * 80
+                Math.random() * 80 - 40,
+                -9,
+                Math.random() * 80 - 40
             );
-            rock.rotation.set(
-                Math.random() * Math.PI,
-                Math.random() * Math.PI,
-                Math.random() * Math.PI
-            );
-            rock.castShadow = true;
-            rock.receiveShadow = true;
-            
-            this.rocks.add(rock);
+            this.scene.add(rock);
         }
-        
-        this.scene.add(this.rocks);
     }
     
     createSeaweed() {
-        const seaweedCount = 30;
-        this.seaweed = new THREE.Group();
+        const seaweedColors = [0x98FB98, 0x90EE90, 0x00FA9A]; // Bright green colors
         
-        for (let i = 0; i < seaweedCount; i++) {
-            const segments = 8;
+        for (let i = 0; i < 100; i++) {
             const points = [];
+            const height = 5 + Math.random() * 10;
+            const segments = 10;
             
             for (let j = 0; j < segments; j++) {
-                points.push(new THREE.Vector3(0, j * 1.5, 0));
+                points.push(new THREE.Vector3(
+                    Math.sin(j * 0.2) * 0.5,
+                    j * (height / segments),
+                    Math.cos(j * 0.2) * 0.5
+                ));
             }
             
             const curve = new THREE.CatmullRomCurve3(points);
-            const geometry = new THREE.TubeGeometry(curve, segments * 4, 0.1, 8, false);
-            
-            const material = new THREE.MeshPhongMaterial({
-                color: 0x00ff00,
+            const geometry = new THREE.TubeGeometry(curve, 20, 0.2, 8, false);
+            const material = new THREE.MeshStandardMaterial({
+                color: seaweedColors[Math.floor(Math.random() * seaweedColors.length)],
+                metalness: 0.2,
+                roughness: 0.8,
                 transparent: true,
-                opacity: 0.8,
-                shininess: 100
+                opacity: 0.9
             });
             
-            const plant = new THREE.Mesh(geometry, material);
-            plant.position.set(
-                (Math.random() - 0.5) * 80,
-                -20,
-                (Math.random() - 0.5) * 80
+            const seaweed = new THREE.Mesh(geometry, material);
+            seaweed.position.set(
+                (Math.random() - 0.5) * 200,
+                -50,
+                (Math.random() - 0.5) * 200
             );
+            seaweed.castShadow = true;
+            this.scene.add(seaweed);
             
-            // Store original positions for animation
-            plant.userData.originalPoints = points.map(p => p.clone());
-            plant.userData.time = Math.random() * Math.PI * 2;
-            
-            this.seaweed.add(plant);
+            // Store original points for animation
+            seaweed.userData.originalPoints = points.map(p => p.clone());
+            seaweed.userData.curve = curve;
         }
-        
-        this.scene.add(this.seaweed);
     }
     
     createCaustics() {
-        const geometry = new THREE.PlaneGeometry(100, 100, 1, 1);
+        const geometry = new THREE.PlaneGeometry(1000, 1000);
         const material = new THREE.ShaderMaterial({
             uniforms: {
                 time: { value: 0 },
-                intensity: { value: 0.3 }
+                brightness: { value: 1.0 }
             },
             vertexShader: `
                 varying vec2 vUv;
-                
                 void main() {
                     vUv = uv;
                     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -199,13 +129,20 @@ export class Environment {
             `,
             fragmentShader: `
                 uniform float time;
-                uniform float intensity;
+                uniform float brightness;
                 varying vec2 vUv;
                 
                 void main() {
                     vec2 p = vUv * 20.0;
-                    float brightness = abs(sin(p.x + time) * sin(p.y + time));
-                    gl_FragColor = vec4(vec3(brightness * intensity), 1.0);
+                    float brightness = brightness * 0.5;
+                    
+                    float caustic = 0.0;
+                    for(float i = 0.0; i < 3.0; i++) {
+                        vec2 offset = vec2(cos(time + i), sin(time + i)) * 0.02;
+                        caustic += sin(p.x + time + i) * sin(p.y + time + i) * brightness;
+                    }
+                    
+                    gl_FragColor = vec4(vec3(0.0, 0.5, 1.0) * (caustic + 0.5), 0.3);
                 }
             `,
             transparent: true,
@@ -214,7 +151,7 @@ export class Environment {
         
         this.caustics = new THREE.Mesh(geometry, material);
         this.caustics.rotation.x = -Math.PI / 2;
-        this.caustics.position.y = -19.9; // Slightly above seafloor
+        this.caustics.position.y = -49.9;
         this.scene.add(this.caustics);
     }
     
@@ -226,95 +163,157 @@ export class Environment {
         
         for (let i = 0; i < particleCount; i++) {
             const i3 = i * 3;
-            positions[i3] = (Math.random() - 0.5) * 100;
-            positions[i3 + 1] = Math.random() * 40 - 20;
-            positions[i3 + 2] = (Math.random() - 0.5) * 100;
+            positions[i3] = (Math.random() - 0.5) * 200;
+            positions[i3 + 1] = Math.random() * 100 - 50;
+            positions[i3 + 2] = (Math.random() - 0.5) * 200;
             
-            velocities[i3] = (Math.random() - 0.5) * 0.02;
-            velocities[i3 + 1] = Math.random() * 0.02;
-            velocities[i3 + 2] = (Math.random() - 0.5) * 0.02;
+            velocities[i3] = (Math.random() - 0.5) * 0.1;
+            velocities[i3 + 1] = Math.random() * 0.1;
+            velocities[i3 + 2] = (Math.random() - 0.5) * 0.1;
         }
         
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         geometry.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
         
         const material = new THREE.PointsMaterial({
-            color: 0xffffff,
-            size: 0.05,
+            color: 0xFFFFFF,
+            size: 0.2,
             transparent: true,
-            opacity: 0.3,
-            blending: THREE.AdditiveBlending
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending,
+            map: this.createParticleTexture()
         });
         
         this.particles = new THREE.Points(geometry, material);
         this.scene.add(this.particles);
     }
     
-    createNoiseTexture() {
-        const size = 256;
-        const data = new Uint8Array(size * size);
+    createParticleTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d');
         
-        for (let i = 0; i < size * size; i++) {
-            data[i] = Math.random() * 255;
-        }
+        const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+        gradient.addColorStop(0, 'rgba(255,255,255,1)');
+        gradient.addColorStop(1, 'rgba(255,255,255,0)');
         
-        const texture = new THREE.DataTexture(
-            data,
-            size,
-            size,
-            THREE.RedFormat,
-            THREE.UnsignedByteType
-        );
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 32, 32);
+        
+        const texture = new THREE.Texture(canvas);
         texture.needsUpdate = true;
-        
         return texture;
     }
     
-    update(deltaTime) {
-        // Update water surface
-        this.waterSurface.material.uniforms.time.value += deltaTime;
+    createDecorations() {
+        // Add coral formations
+        const coralColors = [0xFF69B4, 0xFF1493, 0xFF00FF, 0xFFB6C1]; // Bright pink/purple colors
         
-        // Update caustics
-        this.caustics.material.uniforms.time.value += deltaTime;
-        
-        // Update seaweed
-        this.seaweed.children.forEach(plant => {
-            plant.userData.time += deltaTime;
+        for (let i = 0; i < 30; i++) {
+            const geometry = new THREE.ConeGeometry(1 + Math.random(), 2 + Math.random() * 4, 5);
+            const material = new THREE.MeshStandardMaterial({
+                color: coralColors[Math.floor(Math.random() * coralColors.length)],
+                metalness: 0.3,
+                roughness: 0.7
+            });
             
-            const points = plant.userData.originalPoints;
-            const curve = new THREE.CatmullRomCurve3(points);
-            
-            // Apply wave motion
-            for (let i = 0; i < points.length; i++) {
-                const point = points[i];
-                const wave = Math.sin(plant.userData.time + i * 0.5) * 0.2 * (i / points.length);
-                point.x = plant.userData.originalPoints[i].x + wave;
-                point.z = plant.userData.originalPoints[i].z + wave;
-            }
-            
-            // Update geometry
-            plant.geometry.dispose();
-            plant.geometry = new THREE.TubeGeometry(curve, points.length * 4, 0.1, 8, false);
-        });
-        
-        // Update particles
-        const positions = this.particles.geometry.attributes.position.array;
-        const velocities = this.particles.geometry.attributes.velocity.array;
-        
-        for (let i = 0; i < positions.length; i += 3) {
-            positions[i] += velocities[i];
-            positions[i + 1] += velocities[i + 1];
-            positions[i + 2] += velocities[i + 2];
-            
-            // Wrap particles around boundaries
-            if (positions[i] < -50) positions[i] = 50;
-            if (positions[i] > 50) positions[i] = -50;
-            if (positions[i + 1] < -20) positions[i + 1] = 20;
-            if (positions[i + 1] > 20) positions[i + 1] = -20;
-            if (positions[i + 2] < -50) positions[i + 2] = 50;
-            if (positions[i + 2] > 50) positions[i + 2] = -50;
+            const coral = new THREE.Mesh(geometry, material);
+            coral.position.set(
+                (Math.random() - 0.5) * 200,
+                -49,
+                (Math.random() - 0.5) * 200
+            );
+            coral.rotation.y = Math.random() * Math.PI * 2;
+            coral.castShadow = true;
+            coral.receiveShadow = true;
+            this.scene.add(coral);
         }
         
-        this.particles.geometry.attributes.position.needsUpdate = true;
+        // Add sea shells
+        const shellColors = [0xFFFACD, 0xFFE4B5, 0xFFDAB9]; // Bright shell colors
+        
+        for (let i = 0; i < 50; i++) {
+            const geometry = new THREE.TorusGeometry(0.5 + Math.random() * 0.5, 0.2, 8, 12);
+            const material = new THREE.MeshStandardMaterial({
+                color: shellColors[Math.floor(Math.random() * shellColors.length)],
+                metalness: 0.6,
+                roughness: 0.4
+            });
+            
+            const shell = new THREE.Mesh(geometry, material);
+            shell.position.set(
+                (Math.random() - 0.5) * 200,
+                -49.5,
+                (Math.random() - 0.5) * 200
+            );
+            shell.rotation.set(
+                Math.PI / 2,
+                Math.random() * Math.PI * 2,
+                0
+            );
+            shell.castShadow = true;
+            shell.receiveShadow = true;
+            this.scene.add(shell);
+        }
+    }
+    
+    update(deltaTime) {
+        // Update water surface waves
+        const time = performance.now() * 0.001;
+        for (let i = 0; i < this.waterVertices.length; i += 3) {
+            const x = this.waterVerticesOriginal[i];
+            const z = this.waterVerticesOriginal[i + 2];
+            this.waterVertices[i + 1] = Math.sin(x * 0.05 + time) * Math.cos(z * 0.05 + time) * 2;
+        }
+        this.waterSurface.geometry.attributes.position.needsUpdate = true;
+        
+        // Update caustics
+        this.caustics.material.uniforms.time.value = time;
+        this.caustics.material.uniforms.brightness.value = 0.5 + Math.sin(time) * 0.2;
+        
+        // Update particles
+        const positions = this.particles.geometry.attributes.position;
+        const velocities = this.particles.geometry.attributes.velocity;
+        
+        for (let i = 0; i < positions.count; i++) {
+            const i3 = i * 3;
+            
+            positions.array[i3] += velocities.array[i3];
+            positions.array[i3 + 1] += velocities.array[i3 + 1];
+            positions.array[i3 + 2] += velocities.array[i3 + 2];
+            
+            // Wrap particles around boundaries
+            if (positions.array[i3] < -100) positions.array[i3] = 100;
+            if (positions.array[i3] > 100) positions.array[i3] = -100;
+            if (positions.array[i3 + 1] < -50) positions.array[i3 + 1] = 50;
+            if (positions.array[i3 + 1] > 50) positions.array[i3 + 1] = -50;
+            if (positions.array[i3 + 2] < -100) positions.array[i3 + 2] = 100;
+            if (positions.array[i3 + 2] > 100) positions.array[i3 + 2] = -100;
+        }
+        
+        positions.needsUpdate = true;
+        
+        // Animate seaweed
+        this.scene.traverse((object) => {
+            if (object.userData.originalPoints) {
+                const points = object.userData.originalPoints;
+                for (let i = 1; i < points.length; i++) {
+                    const point = points[i];
+                    const wave = Math.sin(time * 2 + i * 0.5) * 0.2;
+                    point.x = object.userData.originalPoints[i].x + wave;
+                    point.z = object.userData.originalPoints[i].z + wave;
+                }
+                object.userData.curve.points = points;
+                object.geometry.dispose();
+                object.geometry = new THREE.TubeGeometry(
+                    object.userData.curve,
+                    20,
+                    0.2,
+                    8,
+                    false
+                );
+            }
+        });
     }
 } 

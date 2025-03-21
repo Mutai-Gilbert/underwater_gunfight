@@ -3,17 +3,32 @@ import * as THREE from 'three';
 
 export class Physics {
     constructor() {
+        // Create physics world
         this.world = new CANNON.World({
-            gravity: new CANNON.Vec3(0, -9.82 * 0.2, 0) // Reduced gravity for underwater effect
+            gravity: new CANNON.Vec3(0, -9.82, 0)
         });
         
-        // Set world parameters for underwater simulation
-        this.world.defaultContactMaterial.friction = 0.1;
-        this.world.defaultContactMaterial.restitution = 0.7;
+        // Configure world settings
+        this.world.broadphase = new CANNON.SAPBroadphase(this.world);
+        this.world.allowSleep = true;
+        this.world.defaultContactMaterial.friction = 0.3;
+        this.world.defaultContactMaterial.restitution = 0.3;
         
-        // Add water resistance (drag)
-        this.world.allowSleep = false;
-        this.world.solver.iterations = 10;
+        // Create water material
+        this.waterMaterial = new CANNON.Material('water');
+        this.waterContactMaterial = new CANNON.ContactMaterial(
+            this.waterMaterial,
+            this.waterMaterial,
+            {
+                friction: 0.0,
+                restitution: 0.7
+            }
+        );
+        this.world.addContactMaterial(this.waterContactMaterial);
+        
+        // Set up timestep
+        this.fixedTimeStep = 1.0 / 60.0;
+        this.maxSubSteps = 3;
         
         // Store bodies and their corresponding meshes
         this.bodies = new Map();
@@ -143,8 +158,8 @@ export class Physics {
     }
     
     update(deltaTime) {
-        // Step the physics world
-        this.world.step(1/60, deltaTime, 3);
+        // Step the physics world forward
+        this.world.step(this.fixedTimeStep, deltaTime, this.maxSubSteps);
         
         // Update visual meshes to match physics bodies
         for (let [mesh, body] of this.bodies) {
@@ -163,5 +178,19 @@ export class Physics {
             this.world.removeBody(body);
             this.bodies.delete(mesh);
         }
+    }
+    
+    createBody(options = {}) {
+        const body = new CANNON.Body(options);
+        this.world.addBody(body);
+        return body;
+    }
+    
+    addConstraint(constraint) {
+        this.world.addConstraint(constraint);
+    }
+    
+    removeConstraint(constraint) {
+        this.world.removeConstraint(constraint);
     }
 } 
